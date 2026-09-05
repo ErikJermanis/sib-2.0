@@ -64,7 +64,10 @@ function icon(name: "cart" | "pin" | "grip" | "check"): SVGSVGElement {
   svg.setAttribute("aria-hidden", "true");
   svg.setAttribute("focusable", "false");
   const paths: Record<typeof name, string[]> = {
-    cart: ["M3 4h2l2.2 10.2a2 2 0 0 0 2 1.6h7.9a2 2 0 0 0 2-1.6L20.5 8H6", "M9.5 20a1 1 0 1 0 0-2 1 1 0 0 0 0 2Zm7 0a1 1 0 1 0 0-2 1 1 0 0 0 0 2Z"],
+    cart: [
+      "M3 4h2l2.2 10.2a2 2 0 0 0 2 1.6h7.9a2 2 0 0 0 2-1.6L20.5 8H6",
+      "M9.5 20a1 1 0 1 0 0-2 1 1 0 0 0 0 2Zm7 0a1 1 0 1 0 0-2 1 1 0 0 0 0 2Z",
+    ],
     pin: ["M20 10c0 5-8 11-8 11S4 15 4 10a8 8 0 1 1 16 0Z", "M12 13a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z"],
     grip: ["M8 7h8M8 12h8M8 17h8"],
     check: ["m7 12 3 3 7-7"],
@@ -238,7 +241,10 @@ async function updateShopping(id: string, update: (item: ShoppingItem) => Shoppi
 async function reorderShopping(desiredIds: string[]): Promise<void> {
   const current = activeShopping(await getShoppingItems());
   const byId = new Map(current.map((item) => [item.id, item]));
-  const orderedIds = [...desiredIds.filter((id) => byId.has(id)), ...current.map((item) => item.id).filter((id) => !desiredIds.includes(id))];
+  const orderedIds = [
+    ...desiredIds.filter((id) => byId.has(id)),
+    ...current.map((item) => item.id).filter((id) => !desiredIds.includes(id)),
+  ];
   const now = new Date().toISOString();
   const changed = orderedIds.flatMap((id, position) => {
     const item = byId.get(id);
@@ -270,7 +276,9 @@ function beginShoppingDrag(event: PointerEvent, row: HTMLLIElement, list: HTMLUL
   const move = (moveEvent: PointerEvent) => {
     row.style.top = `${moveEvent.clientY - pointerOffset}px`;
     const candidates = [...list.querySelectorAll<HTMLLIElement>("[data-shopping-row]")];
-    const before = candidates.find((candidate) => moveEvent.clientY < candidate.getBoundingClientRect().top + candidate.offsetHeight / 2);
+    const before = candidates.find(
+      (candidate) => moveEvent.clientY < candidate.getBoundingClientRect().top + candidate.offsetHeight / 2,
+    );
     if (before) list.insertBefore(placeholder, before);
     else list.append(placeholder);
   };
@@ -327,7 +335,10 @@ function shoppingEditInput(item: ShoppingItem): HTMLInputElement {
       shoppingEditId = null;
       shoppingEditDraft = null;
       if (!text || text === item.text) void render();
-      else void mutate(() => updateShopping(item.id, (fresh) => ({ ...fresh, text, updatedAt: new Date().toISOString() })));
+      else
+        void mutate(() =>
+          updateShopping(item.id, (fresh) => ({ ...fresh, text, updatedAt: new Date().toISOString() })),
+        );
     }
   });
   input.addEventListener("blur", () => {
@@ -350,7 +361,9 @@ function renderShoppingRow(item: ShoppingItem, list: HTMLUListElement, allActive
   const complete = button("complete-button", "");
   complete.setAttribute("aria-label", `Označi kupljenim: ${item.text}`);
   complete.addEventListener("click", () => {
-    void mutate(() => updateShopping(item.id, (fresh) => ({ ...fresh, completed: true, updatedAt: new Date().toISOString() })));
+    void mutate(() =>
+      updateShopping(item.id, (fresh) => ({ ...fresh, completed: true, updatedAt: new Date().toISOString() })),
+    );
   });
 
   const content = element("div", "shopping-text");
@@ -411,13 +424,12 @@ function renderShopping(items: ShoppingItem[]): HTMLElement {
   panel.setAttribute("role", "tabpanel");
   panel.setAttribute("aria-label", "Kupovina");
   panel.setAttribute("aria-labelledby", "shopping-tab");
-  panel.append(renderTopbar("Popis za kupovinu"));
   const error = renderErrorBanner();
   if (error) panel.append(error);
 
   const paper = element("section", "paper");
   const paperTitle = element("div", "paper-heading");
-  paperTitle.append(element("span", "paper-kicker", "treba nam"), element("h2", "", "Za kupiti"));
+  paperTitle.append(element("h2", "", "Za kupiti"));
   const addRow = element("div", "shopping-add-row");
   addRow.setAttribute("aria-label", "Dodaj na popis");
   const addCircle = element("span", "add-circle");
@@ -475,7 +487,9 @@ function renderShopping(items: ShoppingItem[]): HTMLElement {
   if (focusShoppingHandleId) {
     const id = focusShoppingHandleId;
     focusShoppingHandleId = null;
-    queueMicrotask(() => panel.querySelector<HTMLElement>(`[data-shopping-row="${CSS.escape(id)}"] .drag-handle`)?.focus());
+    queueMicrotask(() =>
+      panel.querySelector<HTMLElement>(`[data-shopping-row="${CSS.escape(id)}"] .drag-handle`)?.focus(),
+    );
   }
   return panel;
 }
@@ -511,7 +525,8 @@ function travelEditInput(item: TravelItem): HTMLInputElement {
       travelEditId = null;
       travelEditDraft = null;
       if (!text || text === item.text) void render();
-      else void mutate(() => updateTravel(item.id, (fresh) => ({ ...fresh, text, updatedAt: new Date().toISOString() })));
+      else
+        void mutate(() => updateTravel(item.id, (fresh) => ({ ...fresh, text, updatedAt: new Date().toISOString() })));
     }
   });
   input.addEventListener("blur", () => {
@@ -534,7 +549,9 @@ function renderTravelActions(item: TravelItem): HTMLElement {
     const unvisit = button("travel-action action-unvisit", "Označi neposjećenim");
     unvisit.addEventListener("click", () => {
       travelMenuId = null;
-      void mutate(() => updateTravel(item.id, (fresh) => ({ ...fresh, visited: false, updatedAt: new Date().toISOString() })));
+      void mutate(() =>
+        updateTravel(item.id, (fresh) => ({ ...fresh, visited: false, updatedAt: new Date().toISOString() })),
+      );
     });
     actions.append(unvisit);
     return actions;
@@ -567,14 +584,19 @@ function renderTravelActions(item: TravelItem): HTMLElement {
   const visit = button("travel-action action-visit", "Posjećeno");
   visit.addEventListener("click", () => {
     travelMenuId = null;
-    void mutate(() => updateTravel(item.id, (fresh) => ({ ...fresh, visited: true, updatedAt: new Date().toISOString() })));
+    void mutate(() =>
+      updateTravel(item.id, (fresh) => ({ ...fresh, visited: true, updatedAt: new Date().toISOString() })),
+    );
   });
   actions.append(edit, remove, visit);
   return actions;
 }
 
 function renderTravelCard(item: TravelItem): HTMLLIElement {
-  const card = element("li", `travel-card${item.visited ? " is-visited" : ""}${travelMenuId === item.id ? " has-actions" : ""}`);
+  const card = element(
+    "li",
+    `travel-card${item.visited ? " is-visited" : ""}${travelMenuId === item.id ? " has-actions" : ""}`,
+  );
   card.dataset.travelId = item.id;
   const cardBody = element("div", "travel-card-body");
   const marker = element("span", "travel-marker");
@@ -609,7 +631,6 @@ function renderTravel(items: TravelItem[]): HTMLElement {
   if (error) panel.append(error);
 
   const intro = element("section", "travel-intro");
-  intro.append(element("p", "travel-eyebrow", "Kamo ćemo sljedeće?"), element("h2", "", "Mjesta koja nas zovu"));
   const addBox = element("div", "travel-add");
   addBox.append(icon("pin"));
   const input = element("input", "travel-add-input");
@@ -652,11 +673,7 @@ function renderUnpaired(): HTMLElement {
   const screen = element("main", "unpaired-screen");
   const symbol = element("div", "unpaired-symbol", "SiB");
   const copy = element("div", "unpaired-copy");
-  copy.append(
-    element("p", "unpaired-kicker", "Privatna veza"),
-    element("h1", "", "Uređaj nije povezan"),
-    element("p", "", "Povežite ovaj uređaj kako bi se vaše liste sigurno sinkronizirale. Lokalni podaci ostali su sačuvani."),
-  );
+  copy.append(element("h1", "", "Uređaj nije povezan"));
   screen.append(symbol, copy);
   return screen;
 }
@@ -668,7 +685,8 @@ async function render(): Promise<void> {
       app.replaceChildren(renderUnpaired());
       return;
     }
-    const content = route === "shopping" ? renderShopping(await getShoppingItems()) : renderTravel(await getTravelItems());
+    const content =
+      route === "shopping" ? renderShopping(await getShoppingItems()) : renderTravel(await getTravelItems());
     if (sequence !== renderSequence) return;
     app.replaceChildren(content, renderNav());
     if (focusNavRoute) {
@@ -681,7 +699,11 @@ async function render(): Promise<void> {
     storageError = error instanceof Error ? error.message : "Lokalnu bazu nije moguće učitati.";
     const failure = element("main", "fatal-storage-error");
     failure.setAttribute("role", "alert");
-    failure.append(element("div", "fatal-mark", "!"), element("h1", "", "Podaci nisu dostupni"), element("p", "", storageError));
+    failure.append(
+      element("div", "fatal-mark", "!"),
+      element("h1", "", "Podaci nisu dostupni"),
+      element("p", "", storageError),
+    );
     app.replaceChildren(failure, renderNav());
   }
 }
