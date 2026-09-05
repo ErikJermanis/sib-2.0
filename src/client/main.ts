@@ -27,6 +27,7 @@ let travelAddDraft = "";
 let travelMenuId: string | null = null;
 let travelDeleteConfirm = false;
 let focusShoppingHandleId: string | null = null;
+let focusShoppingAddInput = false;
 let focusNavRoute: Route | null = null;
 let renderSequence = 0;
 let storageError: string | null = null;
@@ -449,6 +450,7 @@ function renderShopping(items: ShoppingItem[]): HTMLElement {
     if (!text) return;
     shoppingAddDraft = "";
     input.value = "";
+    focusShoppingAddInput = true;
     void mutate(() => addShopping(text));
   });
   addRow.append(addCircle, input);
@@ -490,6 +492,9 @@ function renderShopping(items: ShoppingItem[]): HTMLElement {
     queueMicrotask(() =>
       panel.querySelector<HTMLElement>(`[data-shopping-row="${CSS.escape(id)}"] .drag-handle`)?.focus(),
     );
+  }
+  if (focusShoppingAddInput) {
+    input.autofocus = true;
   }
   return panel;
 }
@@ -680,6 +685,8 @@ function renderUnpaired(): HTMLElement {
 
 async function render(): Promise<void> {
   const sequence = ++renderSequence;
+  const restoreShoppingAddInput =
+    focusShoppingAddInput || (route === "shopping" && document.activeElement?.matches(".add-input"));
   try {
     if (syncStatus.phase === "unpaired") {
       app.replaceChildren(renderUnpaired());
@@ -689,6 +696,12 @@ async function render(): Promise<void> {
       route === "shopping" ? renderShopping(await getShoppingItems()) : renderTravel(await getTravelItems());
     if (sequence !== renderSequence) return;
     app.replaceChildren(content, renderNav());
+    if (restoreShoppingAddInput && route === "shopping") {
+      focusShoppingAddInput = false;
+      requestAnimationFrame(() => {
+        document.querySelector<HTMLInputElement>(".add-input")?.focus();
+      });
+    }
     if (focusNavRoute) {
       const tabRoute = focusNavRoute;
       focusNavRoute = null;

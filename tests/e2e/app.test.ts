@@ -63,6 +63,7 @@ test("pairs a device and supports local-first shopping and travel", async ({ pag
 
   await page.getByLabel("Nova stavka za kupovinu").fill(milk);
   await page.getByLabel("Nova stavka za kupovinu").press("Enter");
+  await expect(page.getByLabel("Nova stavka za kupovinu")).toBeFocused();
   await page.getByLabel("Nova stavka za kupovinu").fill(bread);
   await page.getByLabel("Nova stavka za kupovinu").press("Enter");
   await expect(page.locator(".shopping-row", { hasText: milk })).toBeVisible();
