@@ -420,7 +420,7 @@ function renderShopping(items: ShoppingItem[]): HTMLElement {
   paperTitle.append(element("span", "paper-kicker", "treba nam"), element("h2", "", "Za kupiti"));
   const addRow = element("div", "shopping-add-row");
   addRow.setAttribute("aria-label", "Dodaj na popis");
-  const addCircle = element("span", "add-circle", "+");
+  const addCircle = element("span", "add-circle");
   const input = element("input", "add-input");
   input.type = "text";
   input.value = shoppingAddDraft;
@@ -446,7 +446,8 @@ function renderShopping(items: ShoppingItem[]): HTMLElement {
   list.setAttribute("aria-label", "Aktivne stavke");
   for (const item of active) list.append(renderShoppingRow(item, list, active));
   if (active.length === 0) list.append(element("li", "paper-empty", "Popis je prazan. Što nam treba?"));
-  paper.append(paperTitle, addRow, list);
+  // Keep the entry field attached to the unbought list, like its empty final row.
+  paper.append(paperTitle, list, addRow);
 
   const bought = boughtShopping(items);
   if (bought.length > 0) {

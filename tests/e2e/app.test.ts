@@ -87,6 +87,20 @@ test("pairs a device and supports local-first shopping and travel", async ({ pag
   const editedRow = page.locator(".shopping-row", { hasText: editedMilk });
   await editedRow.getByRole("button", { name: /Označi kupljenim/ }).click();
   await expect(page.getByRole("heading", { name: "Kupljeno" })).toBeVisible();
+  await expect
+    .poll(() =>
+      page.locator(".paper").evaluate((paper) => {
+        const activeList = paper.querySelector('[aria-label="Aktivne stavke"]');
+        const addRow = paper.querySelector('[aria-label="Dodaj na popis"]');
+        const boughtList = paper.querySelector('[aria-label="Kupljene stavke"]');
+        if (!activeList || !addRow || !boughtList) return false;
+        return Boolean(
+          activeList.compareDocumentPosition(addRow) & Node.DOCUMENT_POSITION_FOLLOWING &&
+            addRow.compareDocumentPosition(boughtList) & Node.DOCUMENT_POSITION_FOLLOWING,
+        );
+      }),
+    )
+    .toBe(true);
   await page.getByRole("button", { name: `Vrati na popis: ${editedMilk}` }).click();
   await expect(page.locator(".shopping-list").first()).toContainText(editedMilk);
 
