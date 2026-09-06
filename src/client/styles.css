@@ -216,6 +216,19 @@ input:focus-visible {
     0 2px 4px rgb(13 10 11 / 6%);
 }
 
+.shopping-panel {
+  max-width: none;
+  padding-right: 0;
+  padding-left: 0;
+}
+
+.shopping-panel .paper {
+  min-height: calc(100dvh - var(--nav-height) - env(safe-area-inset-bottom));
+  margin: 0;
+  padding-top: calc(8px + env(safe-area-inset-top));
+  border-radius: 0;
+}
+
 .paper::before {
   position: absolute;
   top: 0;

@@ -703,7 +703,9 @@ async function render(): Promise<void> {
     if (restoreShoppingAddInput && route === "shopping") {
       focusShoppingAddInput = false;
       requestAnimationFrame(() => {
-        document.querySelector<HTMLInputElement>(".add-input")?.focus();
+        const input = document.querySelector<HTMLInputElement>(".add-input");
+        input?.focus();
+        input?.scrollIntoView({ block: "center" });
       });
     }
     if (focusNavRoute) {
