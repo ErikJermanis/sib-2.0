@@ -433,6 +433,7 @@ input:focus-visible {
 .bought-heading h3 {
   margin: 0;
   color: var(--charcoal);
+  font-family: "Bradley Hand", "Segoe Print", "Comic Sans MS", cursive;
   font-size: 13px;
   letter-spacing: 0.1em;
   text-transform: uppercase;
@@ -440,6 +441,7 @@ input:focus-visible {
 
 .clear-bought {
   min-height: 38px;
+  margin-right: 10px;
   padding: 0 10px;
   border: 0;
   border-radius: 9px;
