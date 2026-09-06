@@ -104,6 +104,8 @@ Playwright's Chromium binary is installed once with `npx playwright install chro
 - `src/server/server.ts`: pairing and sync HTTP endpoints plus production static serving
 - `src/shared/protocol.ts`: client/server sync contract
 
-Every local mutation stores the updated entity and an outbox operation in one IndexedDB transaction. `POST /api/sync` uploads pending operations and returns all server changes after the client's increasing version cursor. Operation UUIDs make retries idempotent, the server's receipt order implements last-write-wins, and deletion remains soft on both sides.
+Every local mutation stores the updated entity and an outbox operation in one IndexedDB transaction. `POST /api/sync` uploads pending operations and returns server changes after the client's increasing version cursor; a new local database receives an active-item snapshot instead of historical changes. Operation UUIDs make retries idempotent, the server's receipt order implements last-write-wins, and synced deletions are removed from IndexedDB while retained as server tombstones.
+
+Sync runs at app launch, when the app returns to the foreground, and after a local mutation. Failed sync attempts retry after 10, 30, and 60 seconds, then stop until the next launch, foreground return, or local mutation. Unpaired devices do not sync.
 
 The service worker only caches the application shell and static assets. It does not cache API responses or replace the IndexedDB synchronization mechanism.

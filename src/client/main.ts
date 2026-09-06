@@ -8,7 +8,7 @@ import {
   makeTravelItem,
   subscribeToDb,
 } from "./db";
-import { createSyncEngine, SYNC_INTERVAL_MS, type SyncStatus } from "./sync";
+import { createSyncEngine, type SyncStatus } from "./sync";
 import "./styles.css";
 
 type Route = "shopping" | "travel";
@@ -166,10 +166,7 @@ function addLongPress(target: HTMLElement, activate: () => void): void {
   target.addEventListener("contextmenu", cancel);
 }
 
-function renderTopbar(title: string): HTMLElement {
-  const header = element("header", "topbar");
-  const brand = element("div", "brand-mark", "SiB");
-  const heading = element("h1", "page-title", title);
+function renderSyncIndicator(): HTMLDivElement {
   const status = element("div", "sync-indicator");
   status.setAttribute("aria-live", "polite");
 
@@ -182,7 +179,14 @@ function renderTopbar(title: string): HTMLElement {
   } else {
     status.hidden = true;
   }
+  return status;
+}
 
+function renderTopbar(title: string): HTMLElement {
+  const header = element("header", "topbar");
+  const brand = element("div", "brand-mark", "SiB");
+  const heading = element("h1", "page-title", title);
+  const status = renderSyncIndicator();
   header.append(brand, heading, status);
   return header;
 }
@@ -430,7 +434,7 @@ function renderShopping(items: ShoppingItem[]): HTMLElement {
 
   const paper = element("section", "paper");
   const paperTitle = element("div", "paper-heading");
-  paperTitle.append(element("h2", "", "Za kupiti"));
+  paperTitle.append(element("h2", "", "Za kupiti"), renderSyncIndicator());
   const addRow = element("div", "shopping-add-row");
   addRow.setAttribute("aria-label", "Dodaj na popis");
   const addCircle = element("span", "add-circle");
@@ -729,8 +733,6 @@ window.addEventListener("popstate", () => {
   void render();
 });
 
-window.addEventListener("online", () => void syncEngine.requestSync().catch(reportStorageError));
-window.addEventListener("offline", () => void syncEngine.requestSync().catch(reportStorageError));
 document.addEventListener("visibilitychange", () => {
   if (document.visibilityState === "visible") void syncEngine.markActive().catch(reportStorageError);
 });
@@ -744,17 +746,24 @@ document.addEventListener("pointerdown", (event) => {
 });
 
 subscribeToDb(() => void render());
-window.setInterval(() => {
-  if (document.visibilityState !== "visible") return;
-  void syncEngine
-    .touchActive()
-    .then(() => syncEngine.requestSync())
-    .catch(reportStorageError);
-}, SYNC_INTERVAL_MS);
+
+async function hasSession(): Promise<boolean | null> {
+  try {
+    const response = await fetch("/api/session", { credentials: "same-origin" });
+    if (response.status === 401) return false;
+    return response.ok;
+  } catch {
+    return null;
+  }
+}
 
 async function boot(): Promise<void> {
   await render();
   registerSW({ immediate: true });
+  if ((await hasSession()) === false) {
+    syncEngine.markUnpaired();
+    return;
+  }
   await syncEngine.markActive();
 }
 

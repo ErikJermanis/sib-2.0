@@ -14,7 +14,7 @@ import {
   makeTravelItem,
   updateSyncState,
 } from "../../src/client/db";
-import { FAILURE_GRACE_MS, SyncEngine } from "../../src/client/sync";
+import { RETRY_DELAYS_MS, SyncEngine } from "../../src/client/sync";
 import type { ShoppingItem, SyncRequest, SyncResponse } from "../../src/shared/protocol";
 
 type Fetcher = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
@@ -190,7 +190,6 @@ describe.sequential("local-first client data and sync", () => {
     expect(await getShoppingItems()).toEqual([newer]);
     expect(await getSyncState()).toMatchObject({
       lastSyncVersion: 12,
-      failureSince: null,
     });
   });
 
@@ -268,7 +267,7 @@ describe.sequential("local-first client data and sync", () => {
     expect(JSON.parse(String(init?.body))).toEqual({ operations: [operation], lastSyncVersion: 7 });
     expect(init?.signal).toBeInstanceOf(AbortSignal);
     expect(await getOutboxOperations()).toEqual([]);
-    expect(await getSyncState()).toMatchObject({ lastSyncVersion: 8, failureSince: null });
+    expect(await getSyncState()).toMatchObject({ lastSyncVersion: 8 });
     expect(statuses.at(-1)).toEqual({ phase: "idle", prominent: false, lastSuccessAt: 12_345 });
   });
 
@@ -305,10 +304,9 @@ describe.sequential("local-first client data and sync", () => {
     engine.stop();
 
     expect(engine.getStatus()).toEqual({ phase: "unpaired", prominent: false, lastSuccessAt: null });
-    expect((await getSyncState()).failureSince).toBeNull();
   });
 
-  it("shows an immediate prominent offline state on the initial stale activation", async () => {
+  it("shows an immediate prominent offline state on lifecycle activation", async () => {
     const statuses: ReturnType<SyncEngine["getStatus"]>[] = [];
     const engine = new SyncEngine({
       isOnline: () => false,
@@ -325,20 +323,141 @@ describe.sequential("local-first client data and sync", () => {
     ]);
   });
 
-  it("waits 30 seconds before showing an active-session failure", async () => {
-    const now = new Date("2026-03-01T12:00:00.000Z").getTime();
-    await updateSyncState({ lastActiveAt: now - 1_000 });
+  it("retries failed syncs after 10, 30, and 60 seconds then stops", async () => {
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
-    vi.setSystemTime(now);
-    const engine = new SyncEngine({ isOnline: () => false });
+    let attempts = 0;
+    const engine = new SyncEngine({
+      isOnline: () => {
+        attempts += 1;
+        return false;
+      },
+      isVisible: () => true,
+    });
 
     await engine.markActive();
-    expect(engine.getStatus()).toEqual({ phase: "idle", prominent: false, lastSuccessAt: null });
+    expect(attempts).toBe(1);
+    expect(engine.getStatus().phase).toBe("offline");
+    expect(vi.getTimerCount()).toBe(1);
 
-    vi.advanceTimersByTime(FAILURE_GRACE_MS - 1);
-    expect(engine.getStatus().phase).toBe("idle");
-    vi.advanceTimersByTime(1);
-    expect(engine.getStatus()).toEqual({ phase: "offline", prominent: false, lastSuccessAt: null });
+    await vi.advanceTimersByTimeAsync(RETRY_DELAYS_MS[0]);
+    expect(attempts).toBe(2);
+    await vi.advanceTimersByTimeAsync(RETRY_DELAYS_MS[1]);
+    expect(attempts).toBe(3);
+    await vi.advanceTimersByTimeAsync(RETRY_DELAYS_MS[2]);
+    expect(attempts).toBe(4);
+    await vi.advanceTimersByTimeAsync(120_000);
+    expect(attempts).toBe(4);
     engine.stop();
+  });
+
+  it("resets a pending retry when a local mutation requests sync", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+    let attempts = 0;
+    const engine = new SyncEngine({
+      isOnline: () => {
+        attempts += 1;
+        return false;
+      },
+      isVisible: () => true,
+    });
+
+    await engine.requestSync();
+    await vi.advanceTimersByTimeAsync(5_000);
+    await engine.requestSync();
+    expect(attempts).toBe(2);
+    await vi.advanceTimersByTimeAsync(RETRY_DELAYS_MS[0] - 1);
+    expect(attempts).toBe(2);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(attempts).toBe(3);
+    engine.stop();
+  });
+
+  it("does not poll after success and never retries after a 401", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+    const successfulFetch = vi.fn<Fetcher>(async () =>
+      httpResponse({ acceptedOperationIds: [], changes: [], currentSyncVersion: 0 }),
+    );
+    const successfulEngine = new SyncEngine({
+      fetcher: successfulFetch as typeof fetch,
+      isOnline: () => true,
+      isVisible: () => true,
+    });
+
+    await successfulEngine.markActive();
+    await vi.advanceTimersByTimeAsync(120_000);
+    expect(successfulFetch).toHaveBeenCalledTimes(1);
+    successfulEngine.stop();
+
+    const rejectedFetch = vi.fn<Fetcher>(async () =>
+      httpResponse({ acceptedOperationIds: [], changes: [], currentSyncVersion: 0 }, 401),
+    );
+    const rejectedEngine = new SyncEngine({
+      fetcher: rejectedFetch as typeof fetch,
+      isOnline: () => true,
+      isVisible: () => true,
+    });
+
+    await rejectedEngine.requestSync();
+    await rejectedEngine.markActive();
+    await rejectedEngine.requestSync();
+    await vi.advanceTimersByTimeAsync(120_000);
+    expect(rejectedFetch).toHaveBeenCalledTimes(1);
+    rejectedEngine.stop();
+  });
+
+  it("removes acknowledged and remote tombstones from IndexedDB", async () => {
+    const deleted = shoppingItem({ deletedAt: "2026-01-02T10:00:00.000Z" });
+    await commitLocalChanges("shopping_item", [deleted]);
+    const operation = (await getOutboxOperations())[0]!;
+
+    await applySyncResponse(
+      {
+        acceptedOperationIds: [operation.operationId],
+        changes: [
+          {
+            version: 1,
+            operationId: operation.operationId,
+            entityType: "shopping_item",
+            entityId: deleted.id,
+            operation: "upsert",
+            payload: deleted,
+          },
+        ],
+        currentSyncVersion: 1,
+      },
+      new Set([operation.operationId]),
+      1,
+    );
+
+    expect(await getShoppingItems()).toEqual([]);
+    expect(await getOutboxOperations()).toEqual([]);
+  });
+
+  it("reconciles cursor-zero responses as active-item snapshots", async () => {
+    const retained = shoppingItem({ id: "retained" });
+    const stale = shoppingItem({ id: "stale" });
+    await commitLocalChanges("shopping_item", [retained, stale]);
+    const operations = await getOutboxOperations();
+
+    await applySyncResponse(
+      {
+        acceptedOperationIds: operations.map((operation) => operation.operationId),
+        changes: [
+          {
+            version: 2,
+            operationId: "remote-2",
+            entityType: "shopping_item",
+            entityId: retained.id,
+            operation: "upsert",
+            payload: retained,
+          },
+        ],
+        currentSyncVersion: 2,
+      },
+      new Set(operations.map((operation) => operation.operationId)),
+      0,
+    );
+
+    expect(await getShoppingItems()).toEqual([retained]);
   });
 });

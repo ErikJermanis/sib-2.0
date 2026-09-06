@@ -229,6 +229,10 @@ input:focus-visible {
 
 .paper-heading {
   position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
   /* min-height: 77px; */
   padding: 3px 10px 8px 13px;
 }

@@ -44,6 +44,7 @@ export interface SyncRequest {
 
 export interface SyncResponse {
   acceptedOperationIds: string[];
+  // Cursor zero receives active-item snapshots; positive cursors receive ordered change-log deltas.
   changes: ServerChange[];
   currentSyncVersion: number;
 }

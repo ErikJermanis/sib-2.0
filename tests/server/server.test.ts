@@ -485,10 +485,7 @@ describe("SiB server", () => {
       headers: { cookie: cookie(DEVICE_A_TOKEN) },
       payload: syncBody([], 0),
     });
-    expect(pull.json().changes).toEqual([
-      expect.objectContaining({ version: 1, payload: timestampNewer.payload }),
-      expect.objectContaining({ version: 2, payload: timestampOlder.payload }),
-    ]);
+    expect(pull.json().changes).toEqual([expect.objectContaining({ version: 2, payload: timestampOlder.payload })]);
   });
 
   it("replicates a soft-delete payload without removing the entity row", async () => {
@@ -533,6 +530,14 @@ describe("SiB server", () => {
     expect(
       database.prepare("SELECT deleted_at, server_version FROM shopping_items WHERE id = ?").get(SHOPPING_ID),
     ).toEqual({ deleted_at: DELETED_AT, server_version: 2 });
+
+    const initialSync = await app.inject({
+      method: "POST",
+      url: "/api/sync",
+      headers: { cookie: cookie(DEVICE_B_TOKEN) },
+      payload: syncBody([], 0),
+    });
+    expect(initialSync.json()).toMatchObject({ changes: [], currentSyncVersion: 2 });
   });
 
   it("rejects a future cursor without changing server state", async () => {

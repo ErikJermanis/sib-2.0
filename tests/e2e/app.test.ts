@@ -54,7 +54,7 @@ test("pairs a device and supports local-first shopping and travel", async ({ pag
 
   await page.goto(createPairingLink(`E2E ${testInfo.project.name} ${randomUUID()}`));
   await expect(page).toHaveURL(/\/shopping$/);
-  await expect(page.getByRole("heading", { name: "Popis za kupovinu" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Za kupiti" })).toBeVisible();
 
   const suffix = randomUUID().slice(0, 8);
   const milk = `Mlijeko ${suffix}`;
@@ -132,6 +132,6 @@ test("pairs a device and supports local-first shopping and travel", async ({ pag
   await expect.poll(() => outboxCount(page)).toBeGreaterThan(0);
 
   await context.setOffline(false);
-  await page.evaluate(() => window.dispatchEvent(new Event("online")));
+  await page.reload();
   await expect.poll(() => outboxCount(page), { timeout: 10_000 }).toBe(0);
 });

@@ -241,19 +241,40 @@ export function processSync(
     }
 
     touchDevice(database, deviceId);
-    const changes = database
-      .prepare(
-        `SELECT version, operation_id, entity_type, entity_id, operation, payload
-         FROM changes WHERE version > ? ORDER BY version ASC`,
-      )
-      .all(lastSyncVersion) as ChangeRow[];
+    const currentSyncVersion = currentVersion(database);
+    const changes =
+      lastSyncVersion === 0
+        ? activeSnapshot(database)
+        : (database
+            .prepare(
+              `SELECT version, operation_id, entity_type, entity_id, operation, payload
+               FROM changes WHERE version > ? ORDER BY version ASC`,
+            )
+            .all(lastSyncVersion) as ChangeRow[]);
 
     return {
       acceptedOperationIds,
       changes: changes.map(toServerChange),
-      currentSyncVersion: currentVersion(database),
+      currentSyncVersion,
     };
   }).immediate();
+}
+
+function activeSnapshot(database: Database.Database): ChangeRow[] {
+  return database
+    .prepare(
+      `SELECT changes.version, changes.operation_id, changes.entity_type, changes.entity_id, changes.operation, changes.payload
+       FROM changes
+       JOIN shopping_items ON shopping_items.server_version = changes.version
+       WHERE shopping_items.deleted_at IS NULL
+       UNION ALL
+       SELECT changes.version, changes.operation_id, changes.entity_type, changes.entity_id, changes.operation, changes.payload
+       FROM changes
+       JOIN travel_items ON travel_items.server_version = changes.version
+       WHERE travel_items.deleted_at IS NULL
+       ORDER BY version ASC`,
+    )
+    .all() as ChangeRow[];
 }
 
 function upsertEntity(

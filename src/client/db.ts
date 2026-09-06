@@ -20,17 +20,13 @@ export const STORE_NAMES = {
 export interface SyncState {
   key: "sync";
   lastSyncVersion: number;
-  lastActiveAt: number | null;
   lastSuccessAt: number | null;
-  failureSince: number | null;
 }
 
 export const DEFAULT_SYNC_STATE: SyncState = {
   key: "sync",
   lastSyncVersion: 0,
-  lastActiveAt: null,
   lastSuccessAt: null,
-  failureSince: null,
 };
 
 const changes = new EventTarget();
@@ -217,7 +213,11 @@ function entityKey(entityType: EntityType, entityId: string): IDBValidKey {
   return [entityType, entityId];
 }
 
-export async function applySyncResponse(response: SyncResponse, sentOperationIds?: ReadonlySet<string>): Promise<void> {
+export async function applySyncResponse(
+  response: SyncResponse,
+  sentOperationIds?: ReadonlySet<string>,
+  requestCursor = 1,
+): Promise<void> {
   const db = await openDb();
   const transaction = db.transaction(
     [STORE_NAMES.shopping, STORE_NAMES.travel, STORE_NAMES.outbox, STORE_NAMES.state],
@@ -232,10 +232,47 @@ export async function applySyncResponse(response: SyncResponse, sentOperationIds
       if (!sentOperationIds || sentOperationIds.has(operationId)) outbox.delete(operationId);
     }
 
-    const orderedChanges = [...response.changes].sort((left, right) => left.version - right.version);
-    for (const change of orderedChanges) {
-      const pendingCount = await requestResult(entityIndex.count(entityKey(change.entityType, change.entityId)));
-      if (pendingCount === 0) transaction.objectStore(storeForEntity(change.entityType)).put(change.payload);
+    const hasPendingOperation = async (entityType: EntityType, entityId: string): Promise<boolean> =>
+      (await requestResult(entityIndex.count(entityKey(entityType, entityId)))) > 0;
+
+    if (requestCursor === 0) {
+      const snapshotIds = new Map<EntityType, Set<string>>([
+        ["shopping_item", new Set()],
+        ["travel_item", new Set()],
+      ]);
+      for (const change of response.changes) {
+        if (change.payload.deletedAt !== null) continue;
+        snapshotIds.get(change.entityType)?.add(change.entityId);
+        if (!(await hasPendingOperation(change.entityType, change.entityId))) {
+          transaction.objectStore(storeForEntity(change.entityType)).put(change.payload);
+        }
+      }
+
+      for (const entityType of ["shopping_item", "travel_item"] as const) {
+        const store = transaction.objectStore(storeForEntity(entityType));
+        const localItems = await requestResult(store.getAll() as IDBRequest<EntityPayload[]>);
+        for (const item of localItems) {
+          if (snapshotIds.get(entityType)?.has(item.id) || (await hasPendingOperation(entityType, item.id))) continue;
+          store.delete(item.id);
+        }
+      }
+    } else {
+      const orderedChanges = [...response.changes].sort((left, right) => left.version - right.version);
+      for (const change of orderedChanges) {
+        if (await hasPendingOperation(change.entityType, change.entityId)) continue;
+        const store = transaction.objectStore(storeForEntity(change.entityType));
+        if (change.payload.deletedAt === null) store.put(change.payload);
+        else store.delete(change.entityId);
+      }
+    }
+
+    // Old clients retained soft deletes locally. Remove them once no unsent operation needs the payload.
+    for (const entityType of ["shopping_item", "travel_item"] as const) {
+      const store = transaction.objectStore(storeForEntity(entityType));
+      const localItems = await requestResult(store.getAll() as IDBRequest<EntityPayload[]>);
+      for (const item of localItems) {
+        if (item.deletedAt !== null && !(await hasPendingOperation(entityType, item.id))) store.delete(item.id);
+      }
     }
 
     const stateStore = transaction.objectStore(STORE_NAMES.state);
@@ -244,7 +281,6 @@ export async function applySyncResponse(response: SyncResponse, sentOperationIds
       ...(current ?? DEFAULT_SYNC_STATE),
       lastSyncVersion: Math.max(current?.lastSyncVersion ?? 0, response.currentSyncVersion),
       lastSuccessAt: Date.now(),
-      failureSince: null,
     } satisfies SyncState);
     await completion;
   } catch (error) {
