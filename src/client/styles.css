@@ -752,12 +752,55 @@ input:focus-visible {
   letter-spacing: -0.05em;
 }
 
-.unpaired-copy p:last-child,
+.unpaired-copy > p,
 .fatal-storage-error p {
   max-width: 390px;
   margin: 13px 0 0;
   color: #c8c2ca;
   line-height: 1.6;
+}
+
+.pairing-form {
+  display: grid;
+  gap: 12px;
+  margin-top: 24px;
+}
+
+.pairing-form label {
+  display: grid;
+  gap: 8px;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.pairing-input {
+  width: 100%;
+  min-width: 0;
+  min-height: 48px;
+  padding: 10px 12px;
+  border: 1px solid var(--accent-deep);
+  border-radius: 10px;
+  background: #fff;
+  color: var(--night);
+  font-size: 16px;
+}
+
+.pairing-submit {
+  min-height: 48px;
+  border: 0;
+  border-radius: 10px;
+  background: var(--accent);
+  font-weight: 700;
+}
+
+.pairing-submit:disabled {
+  opacity: 0.6;
+}
+
+.pairing-error {
+  margin: 0;
+  color: #ffb6bb;
+  font-size: 14px;
 }
 
 .fatal-storage-error {

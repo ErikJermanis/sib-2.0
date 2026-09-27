@@ -683,8 +683,126 @@ function renderUnpaired(): HTMLElement {
   const symbol = element("div", "unpaired-symbol", "SiB");
   const copy = element("div", "unpaired-copy");
   copy.append(element("h1", "", "Uređaj nije povezan"));
+  copy.append(element("p", "", "Instalirajte aplikaciju na početni zaslon, zatim ovdje zalijepite jednokratnu poveznicu za povezivanje."));
+  const form = element("form", "pairing-form");
+  const label = element("label", "", "Poveznica za povezivanje");
+  const input = element("input", "pairing-input");
+  input.type = "url";
+  input.required = true;
+  input.autocomplete = "off";
+  input.autocapitalize = "off";
+  input.spellcheck = false;
+  input.placeholder = `${location.origin}/pair/...`;
+  label.append(input);
+  const submit = button("pairing-submit", "Poveži uređaj");
+  submit.type = "submit";
+  const error = element("p", "pairing-error");
+  error.setAttribute("role", "alert");
+  error.hidden = true;
+  form.append(label, submit, error);
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    let token: string;
+    try {
+      const url = new URL(input.value.trim());
+      const match = /^\/pair\/([A-Za-z0-9_-]{43})$/.exec(url.pathname);
+      if (url.origin !== location.origin || !match?.[1] || url.search || url.hash) throw new Error();
+      token = match[1];
+    } catch {
+      error.textContent = "Zalijepite valjanu poveznicu za ovu aplikaciju.";
+      error.hidden = false;
+      return;
+    }
+
+    submit.disabled = true;
+    error.hidden = true;
+    try {
+      const response = await fetch("/api/pair", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token }),
+      });
+      if (!response.ok) {
+        error.textContent = response.status === 410
+          ? "Poveznica je nevažeća ili je već iskorištena. Zatražite novu."
+          : "Povezivanje nije uspjelo. Pokušajte ponovno.";
+        error.hidden = false;
+        return;
+      }
+      location.replace("/shopping");
+    } catch {
+      error.textContent = "Nema veze s poslužiteljem. Pokušajte ponovno kad se povežete na mrežu.";
+      error.hidden = false;
+    } finally {
+      submit.disabled = false;
+    }
+  });
+  copy.append(form);
   screen.append(symbol, copy);
   return screen;
+}
+
+// Keep a focused entry field in the live DOM: removing and refocusing an input
+// dismisses the software keyboard (and interrupts composition) on mobile.
+function updateChildrenKeeping(
+  current: HTMLElement,
+  next: HTMLElement,
+  kept: HTMLElement,
+  replacement: HTMLElement,
+): void {
+  const children = [...next.children];
+  const keptIndex = children.indexOf(replacement);
+  for (const child of [...current.children]) {
+    if (child !== kept) child.remove();
+  }
+  for (const child of children.slice(0, keptIndex)) current.insertBefore(child, kept);
+  for (const child of children.slice(keptIndex + 1)) current.append(child);
+}
+
+function refreshSyncIndicators(): void {
+  for (const indicator of app.querySelectorAll(".sync-indicator")) {
+    indicator.replaceWith(renderSyncIndicator());
+  }
+}
+
+function updateWhileTyping(content: HTMLElement): boolean {
+  const focused = document.activeElement;
+  const current = app.firstElementChild;
+  if (!(focused instanceof HTMLInputElement) || !(current instanceof HTMLElement) || !current.contains(focused)) {
+    return false;
+  }
+
+  // Editing an existing entity may receive changes to that same row from sync.
+  // Defer those structural changes until its edit is submitted or blurred.
+  if (
+    (route === "shopping" && focused.matches(".inline-edit") && shoppingEditId) ||
+    (route === "travel" && focused.matches(".travel-edit") && travelEditId)
+  ) {
+    refreshSyncIndicators();
+    return true;
+  }
+
+  if (route === "shopping" && focused.matches(".add-input")) {
+    const oldPaper = current.querySelector<HTMLElement>(".paper");
+    const newPaper = content.querySelector<HTMLElement>(".paper");
+    const oldAdd = oldPaper?.querySelector<HTMLElement>(".shopping-add-row");
+    const newAdd = newPaper?.querySelector<HTMLElement>(".shopping-add-row");
+    if (!oldPaper || !newPaper || !oldAdd || !newAdd) return false;
+    updateChildrenKeeping(oldPaper, newPaper, oldAdd, newAdd);
+    updateChildrenKeeping(current, content, oldPaper, newPaper);
+    focusShoppingAddInput = false;
+    return true;
+  }
+
+  if (route === "travel" && focused.matches(".travel-add-input")) {
+    const oldIntro = current.querySelector<HTMLElement>(".travel-intro");
+    const newIntro = content.querySelector<HTMLElement>(".travel-intro");
+    if (!oldIntro || !newIntro) return false;
+    updateChildrenKeeping(current, content, oldIntro, newIntro);
+    return true;
+  }
+  return false;
 }
 
 async function render(): Promise<void> {
@@ -699,6 +817,7 @@ async function render(): Promise<void> {
     const content =
       route === "shopping" ? renderShopping(await getShoppingItems()) : renderTravel(await getTravelItems());
     if (sequence !== renderSequence) return;
+    if (updateWhileTyping(content)) return;
     app.replaceChildren(content, renderNav());
     if (restoreShoppingAddInput && route === "shopping") {
       focusShoppingAddInput = false;

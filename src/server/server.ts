@@ -1,5 +1,5 @@
 import path from "node:path";
-import Fastify, { type FastifyInstance, type FastifyServerOptions } from "fastify";
+import Fastify, { type FastifyInstance, type FastifyReply, type FastifyServerOptions } from "fastify";
 import cookie from "@fastify/cookie";
 import fastifyStatic from "@fastify/static";
 import type Database from "better-sqlite3";
@@ -97,14 +97,25 @@ export function buildServer(options: BuildServerOptions = {}): FastifyInstance {
       return reply.code(410).type("text/html; charset=utf-8").send(PAIRING_ERROR_HTML);
     }
 
-    reply.setCookie(SESSION_COOKIE, paired.sessionToken, {
-      httpOnly: true,
-      sameSite: "lax",
-      path: "/",
-      maxAge: 315_360_000,
-      secure: config.nodeEnv === "production",
-    });
+    setSessionCookie(reply, paired.sessionToken, config.nodeEnv === "production");
     return reply.redirect("/shopping");
+  });
+
+  app.post("/api/pair", async (request, reply) => {
+    const body = request.body;
+    if (
+      typeof body !== "object" || body === null || Array.isArray(body) ||
+      Object.keys(body).length !== 1 || !("token" in body) ||
+      typeof body.token !== "string" || !/^[A-Za-z0-9_-]{43}$/.test(body.token)
+    ) {
+      return reply.code(400).send({ error: "Invalid pairing token" });
+    }
+
+    const paired = consumePairingToken(database, hashToken(body.token));
+    if (!paired) return reply.code(410).send({ error: "Pairing link is invalid or already used" });
+
+    setSessionCookie(reply, paired.sessionToken, config.nodeEnv === "production");
+    return { authenticated: true };
   });
 
   if (config.nodeEnv === "production") {
@@ -133,6 +144,16 @@ export function buildServer(options: BuildServerOptions = {}): FastifyInstance {
 }
 
 export const createServer = buildServer;
+
+function setSessionCookie(reply: FastifyReply, sessionToken: string, secure: boolean): void {
+  reply.setCookie(SESSION_COOKIE, sessionToken, {
+    httpOnly: true,
+    sameSite: "lax",
+    path: "/",
+    maxAge: 315_360_000,
+    secure,
+  });
+}
 
 function authenticate(
   database: Database.Database,

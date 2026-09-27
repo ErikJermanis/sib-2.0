@@ -4,6 +4,10 @@
     "knowledge-base": {
       "path": "../../docs/Projects/New SiB",
       "description": "Project knowledge base. Use for requirements, scripts, source materials, editorial decisions, and documentation."
+    },
+    "deployment-knowledge": {
+      "path": "../../docs/Systems understanding/Deployment guide",
+      "description": "This document what user knows about deployment on his Ubuntu VPS."
     }
   }
 }

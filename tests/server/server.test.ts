@@ -309,6 +309,32 @@ describe("SiB server", () => {
     ).toMatchObject({ used_at: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T/) });
   });
 
+  it("pairs an installed app using a pasted link's token only once", async () => {
+    const token = createPairingToken(database, "Installed iPhone");
+    const invalidBodies = [{ token: "short" }, { token, extra: true }, { token: 42 }, null];
+    for (const payload of invalidBodies) {
+      const invalid = await app.inject({ method: "POST", url: "/api/pair", payload });
+      expect(invalid.statusCode).toBe(400);
+    }
+
+    const pairing = await app.inject({ method: "POST", url: "/api/pair", payload: { token } });
+    expect(pairing.statusCode).toBe(200);
+    expect(pairing.json()).toEqual({ authenticated: true });
+    const setCookie = pairing.headers["set-cookie"];
+    expect(setCookie).toMatch(/^sib_session=[A-Za-z0-9_-]+; Max-Age=315360000; Path=\/; HttpOnly; SameSite=Lax$/);
+    const session = await app.inject({
+      method: "GET",
+      url: "/api/session",
+      headers: { cookie: String(setCookie).split(";", 1)[0] },
+    });
+    expect(session.json()).toEqual({ authenticated: true, deviceName: "Installed iPhone" });
+
+    const reused = await app.inject({ method: "POST", url: "/api/pair", payload: { token } });
+    expect(reused.statusCode).toBe(410);
+    expect(reused.headers["set-cookie"]).toBeUndefined();
+    expect(database.prepare("SELECT COUNT(*) AS count FROM devices").get()).toEqual({ count: 3 });
+  });
+
   it("rejects session and sync requests without authentication", async () => {
     const [session, sync] = await Promise.all([
       app.inject({ method: "GET", url: "/api/session" }),

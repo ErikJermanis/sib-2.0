@@ -28,7 +28,9 @@ Set `PUBLIC_BASE_URL` to the externally accessible HTTPS origin, then create a n
 ./app create-pairing-link --name "Erik - iPhone"
 ```
 
-Open the returned URL on the device. The server consumes the link and sets a ten-year `HttpOnly`, `Secure`, `SameSite=Lax` session cookie.
+For an installed app, first open the site in your phone's browser and install it (on iOS, use Share → Add to Home Screen; on Android, use Install app). Launch the home-screen app, **copy the full one-use URL without opening it in the browser**, and paste it into the pairing form. The installed iOS app may not share Safari's cookies, so opening the link in Safari first can consume it without pairing the installed app. If that happens, generate a new link. Opening the link directly still works for a browser session.
+
+The server consumes the link and sets a ten-year `HttpOnly`, `Secure`, `SameSite=Lax` session cookie in the app that paired it. Every installation needs its own link.
 
 Manage paired devices on the server:
 

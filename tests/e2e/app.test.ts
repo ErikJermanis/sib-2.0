@@ -135,3 +135,87 @@ test("pairs a device and supports local-first shopping and travel", async ({ pag
   await page.reload();
   await expect.poll(() => outboxCount(page), { timeout: 10_000 }).toBe(0);
 });
+
+test("pairs a fresh installed-app context by pasting a one-use link", async ({ page }, testInfo) => {
+  await page.goto("/shopping");
+  const field = page.getByRole("textbox", { name: "Poveznica za povezivanje" });
+  await expect(field).toBeVisible();
+
+  const previouslyUsed = createPairingLink(`Browser ${testInfo.project.name} ${randomUUID()}`);
+  await page.goto(previouslyUsed);
+  await expect(page.getByRole("heading", { name: "Za kupiti" })).toBeVisible();
+  await page.context().clearCookies(); // A home-screen installation starts without Safari's session.
+  await page.reload();
+  await expect(field).toBeVisible();
+  await field.fill(previouslyUsed);
+  await page.getByRole("button", { name: "Poveži uređaj" }).click();
+  await expect(page.getByRole("alert")).toContainText("već iskorištena");
+  await expect(field).toHaveValue(previouslyUsed);
+
+  const installedLink = createPairingLink(`Installed ${testInfo.project.name} ${randomUUID()}`);
+  await field.fill(installedLink);
+  await page.getByRole("button", { name: "Poveži uređaj" }).click();
+  await expect(page.getByRole("heading", { name: "Za kupiti" })).toBeVisible();
+  await expect.poll(() => page.evaluate(async () => (await fetch("/api/session")).status)).toBe(200);
+});
+
+test("keeps add and edit fields mounted while sync updates the UI", async ({ page }, testInfo) => {
+  await page.goto(createPairingLink(`Focus ${testInfo.project.name} ${randomUUID()}`));
+  const shoppingAdd = page.getByLabel("Nova stavka za kupovinu");
+  await expect(shoppingAdd).toBeVisible();
+  const item = `Focus ${randomUUID()}`;
+  await shoppingAdd.fill(item);
+  await shoppingAdd.press("Enter");
+  await expect(page.locator(".shopping-row", { hasText: item })).toBeVisible();
+
+  async function syncWhileTyping(selector: string): Promise<void> {
+    const field = page.locator(selector);
+    await expect.poll(() => outboxCount(page)).toBe(0);
+    const selection = await field.evaluate((element) => {
+      const input = element as HTMLInputElement;
+      input.dataset.focusMarker = "original";
+      return [input.selectionStart, input.selectionEnd];
+    });
+    await Promise.all([
+      page.waitForResponse((response) => response.url().endsWith("/api/sync") && response.request().method() === "POST"),
+      page.evaluate(() => document.dispatchEvent(new Event("visibilitychange"))),
+    ]);
+    await expect(page.locator(".sync-indicator").first()).toBeHidden();
+    await expect(field).toBeFocused();
+    await expect(field).toHaveAttribute("data-focus-marker", "original");
+    await expect.poll(() => field.evaluate((element) => {
+      const input = element as HTMLInputElement;
+      return [input.selectionStart, input.selectionEnd];
+    })).toEqual(selection);
+  }
+
+  await shoppingAdd.fill("Shopping draft");
+  await syncWhileTyping(".add-input");
+  await expect(shoppingAdd).toHaveValue("Shopping draft");
+  await shoppingAdd.fill("");
+
+  await longPress(page, `.shopping-row:has-text("${item}") .shopping-text`);
+  const shoppingEdit = page.getByLabel("Uredi stavku");
+  await shoppingEdit.fill("Shopping edit draft");
+  await syncWhileTyping(".inline-edit");
+  await expect(shoppingEdit).toHaveValue("Shopping edit draft");
+  await shoppingEdit.press("Enter");
+  await expect(page.locator(".shopping-row", { hasText: "Shopping edit draft" })).toBeVisible();
+
+  await page.getByRole("tab", { name: "Putovanja" }).click();
+  const travelAdd = page.getByLabel("Novo mjesto za putovanje");
+  await travelAdd.fill("Travel draft");
+  await syncWhileTyping(".travel-add-input");
+  await expect(travelAdd).toHaveValue("Travel draft");
+  await travelAdd.press("Enter");
+  await expect(page.locator(".travel-card", { hasText: "Travel draft" })).toBeVisible();
+
+  await longPress(page, ".travel-card:has-text('Travel draft') .travel-card-body");
+  await page.getByRole("button", { name: "Uredi" }).click();
+  const travelEdit = page.getByLabel("Uredi odredište");
+  await travelEdit.fill("Travel edit draft");
+  await syncWhileTyping(".travel-edit");
+  await expect(travelEdit).toHaveValue("Travel edit draft");
+  await travelEdit.press("Enter");
+  await expect(page.locator(".travel-card", { hasText: "Travel edit draft" })).toBeVisible();
+});
