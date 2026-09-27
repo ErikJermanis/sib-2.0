@@ -4,7 +4,8 @@
   "private": true,
   "type": "module",
   "engines": {
-    "node": ">=22.12.0"
+    "node": ">=22.12.0",
+    "npm": ">=11.19.0"
   },
   "scripts": {
     "dev": "concurrently -k -n client,server -c cyan,green \"vite --host\" \"node --env-file-if-exists=.env --import tsx --watch src/server/index.ts\"",
@@ -12,7 +13,7 @@
     "clean": "rm -rf dist coverage",
     "start": "node --env-file-if-exists=.env dist/server/server/index.js",
     "typecheck": "tsc -p tsconfig.client.json && tsc -p tsconfig.server.json --noEmit",
-    "test": "vitest run",
+    "test": "vitest run && node --test scripts/check-dependency-age.test.mjs",
     "test:watch": "vitest",
     "test:e2e": "npm run build && playwright test",
     "app": "node --env-file-if-exists=.env --import tsx src/server/cli.ts"

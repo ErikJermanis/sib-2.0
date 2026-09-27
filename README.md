@@ -5,13 +5,14 @@ Private, local-first shopping and travel lists for two people. The client is a v
 ## Requirements
 
 - Node.js 22.12 or newer
-- npm 10 or newer
+- npm 11.19 or newer (the project enforces a 14-day minimum package release age)
+- `just` for the `install` and `deploy` recipes
 - HTTPS in production
 
 ## Development
 
 ```bash
-npm install
+just install # clean install with a lockfile-age check; requires npm 11.19+
 cp .env.example .env
 npm run dev
 ```
@@ -56,7 +57,8 @@ NODE_ENV=production
 Build and start the single server process:
 
 ```bash
-npm ci
+node scripts/check-dependency-age.mjs
+npm ci --include=dev
 npm run build
 npm start
 ```
@@ -85,11 +87,44 @@ WantedBy=multi-user.target
 
 Terminate HTTPS at Caddy, nginx, or another reverse proxy and forward to `127.0.0.1:3000`. HTTPS is required for production service workers, installation, and the secure session cookie.
 
+### Redeploying the existing VPS
+
+The live service uses `/home/erik/sites/sib-2.0/sib-2.0` as its checkout, `/home/erik/sib-2.0-data/sib.sqlite` as its database, and `sib2.service` as its systemd unit. The production `.env` and database stay on the VPS; do not copy your local `.env` or database over them.
+
+After committing and pushing this repository to `origin/main`, install the deployment script **once** from your laptop outside the server's Git checkout:
+
+```bash
+scp scripts/deploy.sh erik@erikjermanis.me:/home/erik/sites/sib-2.0/deploy.sh
+ssh erik@erikjermanis.me 'chmod 700 /home/erik/sites/sib-2.0/deploy.sh'
+```
+
+If you later change `scripts/deploy.sh`, copy it over again. Keeping the executable copy outside the checkout prevents a `git pull` from replacing the script while Bash is reading it.
+
+On the VPS, use `sudo visudo -f /etc/sudoers.d/sib2-deploy` and add **exactly**:
+
+```sudoers
+erik ALL=(root) NOPASSWD: /usr/bin/systemctl stop sib2.service, /usr/bin/systemctl start sib2.service
+```
+
+The script uses `sudo -n` (non-interactive); only those two systemd commands need passwordless sudo. The systemd unit, nginx site, Node/npm 11.19+, and SQLite CLI must already be in place. Then, from your laptop:
+
+```bash
+just deploy
+```
+
+`just deploy` runs the server's installed script via SSH. It refuses a dirty checkout, pulls `origin/main` with `--ff-only`, checks the lockfile's package release dates, backs up SQLite online to `/home/erik/sites/sib-2.0/backups`, stops the app, runs `npm ci --include=dev`, tests and builds, starts the app, and verifies the local health endpoint. SQLite migrations run as the service starts. A failed build is **not** automatically restarted with incomplete files; check the printed error and `journalctl -u sib2.service` before retrying. Inspect `https://sib2.erikjermanis.me` after deployment.
+
+### Dependency release-age policy
+
+The committed `.npmrc` sets `min-release-age=14`, so npm 11.19+ will not **select** packages published within the last 14 days during local `npm install`/updates. On a laptop currently running npm 10, upgrade npm (for example `npm install -g npm@11` with an existing compatible Node installation), then confirm `npm --version` is at least 11.19 and `npm config get min-release-age` prints `14` in this checkout.
+
+`npm ci` uses pinned `package-lock.json` versions and **does not apply** npm's release-age filter. For clean local installs use `just install`: it checks every locked registry version's published date before running `npm ci`. The server's deployment script runs the same check before installing anything. Both checks fail closed if registry release dates are unavailable or a lockfile entry is not a hashed npm registry tarball. Use npm 11.19+ for `npm install` when adding/updating dependencies; run `just install` rather than bare `npm ci` for clean local installs. Keep the lockfile committed; updating dependencies locally does not cause the VPS to resolve newer versions during deployment.
+
 ## Commands
 
 ```bash
 npm run typecheck  # client and server TypeScript
-npm test           # server and IndexedDB/sync tests
+npm test           # app and dependency-age policy tests
 npm run test:e2e   # builds and tests both target mobile layouts
 npm run build      # production client and server
 npm start          # production server
