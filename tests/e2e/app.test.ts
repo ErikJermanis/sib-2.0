@@ -38,7 +38,7 @@ async function outboxCount(page: Page): Promise<number> {
 
 async function longPress(page: Page, selector: string): Promise<void> {
   const target = page.locator(selector).first();
-  await target.scrollIntoViewIfNeeded();
+  await expect(async () => target.scrollIntoViewIfNeeded()).toPass();
   await expect(target).toBeVisible();
   const box = await target.boundingBox();
   if (!box) throw new Error(`Cannot long press ${selector}`);
@@ -46,6 +46,24 @@ async function longPress(page: Page, selector: string): Promise<void> {
   await page.mouse.down();
   await page.waitForTimeout(550);
   await page.mouse.up();
+}
+
+async function touchLongPress(page: Page, selector: string): Promise<void> {
+  const target = page.locator(selector).first();
+  await expect(async () => target.scrollIntoViewIfNeeded()).toPass();
+  const box = await target.boundingBox();
+  if (!box) throw new Error(`Cannot long press ${selector}`);
+  const session = await page.context().newCDPSession(page);
+  try {
+    await session.send("Input.dispatchTouchEvent", {
+      type: "touchStart",
+      touchPoints: [{ x: box.x + box.width / 2, y: box.y + box.height / 2, id: 1 }],
+    });
+    await page.waitForTimeout(550);
+    await session.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+  } finally {
+    await session.detach();
+  }
 }
 
 test("pairs a device and supports local-first shopping and travel", async ({ page, context }, testInfo) => {
@@ -69,9 +87,11 @@ test("pairs a device and supports local-first shopping and travel", async ({ pag
   await expect(page.locator(".shopping-row", { hasText: milk })).toBeVisible();
   await expect.poll(() => outboxCount(page)).toBe(0);
 
-  await longPress(page, `.shopping-row:has-text("${milk}") .shopping-text`);
+  await expect(page.locator(".shopping-row", { hasText: milk }).locator(".shopping-text")).toHaveCSS("user-select", "none");
+  await touchLongPress(page, `.shopping-row:has-text("${milk}") .shopping-text`);
   const edit = page.getByLabel("Uredi stavku");
   await expect(edit).toBeVisible();
+  await expect(edit).not.toHaveCSS("user-select", "none");
   await edit.fill(editedMilk);
   await edit.press("Enter");
   await expect(page.locator(".shopping-row", { hasText: editedMilk })).toBeVisible();
@@ -111,7 +131,8 @@ test("pairs a device and supports local-first shopping and travel", async ({ pag
   await page.getByLabel("Novo mjesto za putovanje").fill(destination);
   await page.getByLabel("Novo mjesto za putovanje").press("Enter");
   await expect(page.locator(".travel-card", { hasText: destination })).toBeVisible();
-  await longPress(page, `.travel-card:has-text("${destination}") .travel-card-body`);
+  await expect(page.locator(".travel-card", { hasText: destination }).locator(".travel-card-body")).toHaveCSS("user-select", "none");
+  await touchLongPress(page, `.travel-card:has-text("${destination}") .travel-card-body`);
   await page.getByRole("button", { name: "Posjećeno" }).click();
   const visitedCard = page.locator(".travel-card", { hasText: destination });
   await expect(visitedCard).toHaveClass(/is-visited/);
@@ -159,11 +180,40 @@ test("pairs a fresh installed-app context by pasting a one-use link", async ({ p
   await expect.poll(() => page.evaluate(async () => (await fetch("/api/session")).status)).toBe(200);
 });
 
+test("pulling down reloads the installed iOS app only after the threshold", async ({ page }) => {
+  await page.addInitScript(() => Object.defineProperty(navigator, "standalone", { value: true }));
+  await page.goto("/shopping");
+  await expect(page.locator(".pull-to-reload-cue")).toBeHidden();
+  await page.evaluate(() => { document.body.dataset.pullTest = "before"; });
+
+  const session = await page.context().newCDPSession(page);
+  try {
+    await session.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x: 20, y: 80, id: 1 }] });
+    await session.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: [{ x: 20, y: 120, id: 1 }] });
+    await session.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+    await expect.poll(() => page.evaluate(() => document.body.dataset.pullTest)).toBe("before");
+
+    await session.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x: 20, y: 80, id: 2 }] });
+    await session.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: [{ x: 20, y: 180, id: 2 }] });
+    await expect(page.locator(".pull-to-reload-cue")).toHaveText("Otpustite za osvježavanje");
+    await Promise.all([
+      page.waitForEvent("load"),
+      session.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] }),
+    ]);
+    await expect.poll(() => page.evaluate(() => document.body.dataset.pullTest)).toBeUndefined();
+  } finally {
+    await session.detach();
+  }
+});
+
 test("keeps add and edit fields mounted while sync updates the UI", async ({ page }, testInfo) => {
   await page.goto(createPairingLink(`Focus ${testInfo.project.name} ${randomUUID()}`));
   const shoppingAdd = page.getByLabel("Nova stavka za kupovinu");
   await expect(shoppingAdd).toBeVisible();
   const item = `Focus ${randomUUID()}`;
+  const shoppingEditText = `Shopping edit draft ${item}`;
+  const travelText = `Travel draft ${item}`;
+  const travelEditText = `Travel edit draft ${item}`;
   await shoppingAdd.fill(item);
   await shoppingAdd.press("Enter");
   await expect(page.locator(".shopping-row", { hasText: item })).toBeVisible();
@@ -196,26 +246,26 @@ test("keeps add and edit fields mounted while sync updates the UI", async ({ pag
 
   await longPress(page, `.shopping-row:has-text("${item}") .shopping-text`);
   const shoppingEdit = page.getByLabel("Uredi stavku");
-  await shoppingEdit.fill("Shopping edit draft");
+  await shoppingEdit.fill(shoppingEditText);
   await syncWhileTyping(".inline-edit");
-  await expect(shoppingEdit).toHaveValue("Shopping edit draft");
+  await expect(shoppingEdit).toHaveValue(shoppingEditText);
   await shoppingEdit.press("Enter");
-  await expect(page.locator(".shopping-row", { hasText: "Shopping edit draft" })).toBeVisible();
+  await expect(page.locator(".shopping-row", { hasText: shoppingEditText })).toBeVisible();
 
   await page.getByRole("tab", { name: "Putovanja" }).click();
   const travelAdd = page.getByLabel("Novo mjesto za putovanje");
-  await travelAdd.fill("Travel draft");
+  await travelAdd.fill(travelText);
   await syncWhileTyping(".travel-add-input");
-  await expect(travelAdd).toHaveValue("Travel draft");
+  await expect(travelAdd).toHaveValue(travelText);
   await travelAdd.press("Enter");
-  await expect(page.locator(".travel-card", { hasText: "Travel draft" })).toBeVisible();
+  await expect(page.locator(".travel-card", { hasText: travelText })).toBeVisible();
 
-  await longPress(page, ".travel-card:has-text('Travel draft') .travel-card-body");
+  await longPress(page, `.travel-card:has-text("${travelText}") .travel-card-body`);
   await page.getByRole("button", { name: "Uredi" }).click();
   const travelEdit = page.getByLabel("Uredi odredište");
-  await travelEdit.fill("Travel edit draft");
+  await travelEdit.fill(travelEditText);
   await syncWhileTyping(".travel-edit");
-  await expect(travelEdit).toHaveValue("Travel edit draft");
+  await expect(travelEdit).toHaveValue(travelEditText);
   await travelEdit.press("Enter");
-  await expect(page.locator(".travel-card", { hasText: "Travel edit draft" })).toBeVisible();
+  await expect(page.locator(".travel-card", { hasText: travelEditText })).toBeVisible();
 });

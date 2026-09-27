@@ -8,6 +8,7 @@ import {
   makeTravelItem,
   subscribeToDb,
 } from "./db";
+import { enablePullToReload } from "./pull-to-reload";
 import { createSyncEngine, type SyncStatus } from "./sync";
 import "./styles.css";
 
@@ -140,6 +141,9 @@ function addLongPress(target: HTMLElement, activate: () => void): void {
   let timer: number | undefined;
   let startX = 0;
   let startY = 0;
+  let touchPress = false;
+
+  target.classList.add("long-press-target");
 
   const cancel = () => {
     if (timer !== undefined) window.clearTimeout(timer);
@@ -149,6 +153,7 @@ function addLongPress(target: HTMLElement, activate: () => void): void {
 
   target.addEventListener("pointerdown", (event) => {
     if (event.button !== 0 || (event.target as HTMLElement).closest("button, input")) return;
+    touchPress = event.pointerType === "touch";
     startX = event.clientX;
     startY = event.clientY;
     target.classList.add("is-pressing");
@@ -161,9 +166,21 @@ function addLongPress(target: HTMLElement, activate: () => void): void {
   target.addEventListener("pointermove", (event) => {
     if (Math.hypot(event.clientX - startX, event.clientY - startY) > 10) cancel();
   });
-  target.addEventListener("pointerup", cancel);
-  target.addEventListener("pointercancel", cancel);
-  target.addEventListener("contextmenu", cancel);
+  target.addEventListener("pointerup", () => {
+    cancel();
+    touchPress = false;
+  });
+  target.addEventListener("pointercancel", () => {
+    cancel();
+    touchPress = false;
+  });
+  target.addEventListener("contextmenu", (event) => {
+    if (touchPress) {
+      event.preventDefault();
+      return;
+    }
+    cancel();
+  });
 }
 
 function renderSyncIndicator(): HTMLDivElement {
@@ -867,6 +884,8 @@ document.addEventListener("pointerdown", (event) => {
 });
 
 subscribeToDb(() => void render());
+
+if ((navigator as Navigator & { standalone?: boolean }).standalone === true) enablePullToReload();
 
 async function hasSession(): Promise<boolean | null> {
   try {
