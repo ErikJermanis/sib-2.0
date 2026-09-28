@@ -255,7 +255,10 @@ async function addShoppingItems(texts: string[]): Promise<void> {
   const positions = activeShopping(items).map((item) => item.position);
   const position = positions.length === 0 ? 0 : Math.max(...positions) + 1;
   const now = new Date().toISOString();
-  await commitLocalChanges("shopping_item", texts.map((text, index) => makeShoppingItem(text, position + index, now)));
+  await commitLocalChanges(
+    "shopping_item",
+    texts.map((text, index) => makeShoppingItem(text, position + index, now)),
+  );
 }
 
 function openBulkShoppingDialog(): void {
@@ -264,10 +267,9 @@ function openBulkShoppingDialog(): void {
   const form = element("form", "bulk-add-form");
   const title = element("h3", "", "Dodaj više stavki");
   title.id = "bulk-add-title";
-  const label = element("label", "", "Jedna stavka po retku");
+  const label = element("label", "");
   const textarea = element("textarea", "bulk-add-textarea");
   textarea.rows = 7;
-  textarea.placeholder = "Mlijeko\nKeksi\nMaslac";
   label.append(textarea);
   const error = element("p", "bulk-add-error");
   error.setAttribute("role", "alert");
@@ -303,7 +305,8 @@ function openBulkShoppingDialog(): void {
   });
   dialog.addEventListener("close", () => {
     dialog.remove();
-    if (route === "shopping") requestAnimationFrame(() => document.querySelector<HTMLElement>(".bulk-add-trigger")?.focus());
+    if (route === "shopping")
+      requestAnimationFrame(() => document.querySelector<HTMLElement>(".bulk-add-trigger")?.focus());
   });
   dialog.append(form);
   document.body.append(dialog);
@@ -762,7 +765,13 @@ function renderUnpaired(): HTMLElement {
   const symbol = element("div", "unpaired-symbol", "SiB");
   const copy = element("div", "unpaired-copy");
   copy.append(element("h1", "", "Uređaj nije povezan"));
-  copy.append(element("p", "", "Instalirajte aplikaciju na početni zaslon, zatim ovdje zalijepite jednokratnu poveznicu za povezivanje."));
+  copy.append(
+    element(
+      "p",
+      "",
+      "Instalirajte aplikaciju na početni zaslon, zatim ovdje zalijepite jednokratnu poveznicu za povezivanje.",
+    ),
+  );
   const form = element("form", "pairing-form");
   const label = element("label", "", "Poveznica za povezivanje");
   const input = element("input", "pairing-input");
@@ -803,9 +812,10 @@ function renderUnpaired(): HTMLElement {
         body: JSON.stringify({ token }),
       });
       if (!response.ok) {
-        error.textContent = response.status === 410
-          ? "Poveznica je nevažeća ili je već iskorištena. Zatražite novu."
-          : "Povezivanje nije uspjelo. Pokušajte ponovno.";
+        error.textContent =
+          response.status === 410
+            ? "Poveznica je nevažeća ili je već iskorištena. Zatražite novu."
+            : "Povezivanje nije uspjelo. Pokušajte ponovno.";
         error.hidden = false;
         return;
       }
