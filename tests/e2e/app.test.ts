@@ -157,6 +157,40 @@ test("pairs a device and supports local-first shopping and travel", async ({ pag
   await expect.poll(() => outboxCount(page), { timeout: 10_000 }).toBe(0);
 });
 
+test("adds pasted shopping lines as separate ordered items", async ({ page }, testInfo) => {
+  await page.goto(createPairingLink(`Bulk ${testInfo.project.name} ${randomUUID()}`));
+  const suffix = randomUUID().slice(0, 8);
+  const items = [`Mlijeko ${suffix}`, `Keksi ${suffix}`, `Maslac ${suffix}`];
+  const rows = page.locator(".shopping-list").first().locator(".shopping-row .shopping-text").filter({ hasText: suffix });
+  const open = page.getByRole("button", { name: "Dodaj više stavki" });
+  await open.click();
+  const dialog = page.getByRole("dialog", { name: "Dodaj više stavki" });
+  const textarea = dialog.getByRole("textbox", { name: "Jedna stavka po retku" });
+  await expect(textarea).toBeFocused();
+
+  await dialog.getByRole("button", { name: "Dodaj stavke" }).click();
+  await expect(dialog.getByRole("alert")).toHaveText("Unesite barem jednu stavku.");
+  await textarea.fill(`${items[0]}\n${"x".repeat(241)}`);
+  await dialog.getByRole("button", { name: "Dodaj stavke" }).click();
+  await expect(dialog.getByRole("alert")).toHaveText("Redak 2 ima više od 240 znakova.");
+  await expect(rows).toHaveCount(0);
+
+  await textarea.fill(`  ${items[0]}  \r\n\n${items[1]}\n  ${items[2]}\n`);
+  await page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
+  await expect(textarea).toHaveValue(`  ${items[0]}  \n\n${items[1]}\n  ${items[2]}\n`);
+  await expect(textarea).toBeFocused();
+  await dialog.getByRole("button", { name: "Dodaj stavke" }).click();
+  await expect(dialog).toHaveCount(0);
+  await expect.poll(() => rows.allTextContents()).toEqual(items);
+  await expect(open).toBeFocused();
+
+  const extra = `Kruh ${suffix}`;
+  const quickAdd = page.getByLabel("Nova stavka za kupovinu");
+  await quickAdd.fill(extra);
+  await quickAdd.press("Enter");
+  await expect.poll(() => rows.allTextContents()).toEqual([...items, extra]);
+});
+
 test("pairs a fresh installed-app context by pasting a one-use link", async ({ page }, testInfo) => {
   await page.goto("/shopping");
   const field = page.getByRole("textbox", { name: "Poveznica za povezivanje" });

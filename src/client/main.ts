@@ -112,6 +112,7 @@ function navigate(nextRoute: Route): void {
 }
 
 function closeTransientUi(): void {
+  document.querySelector<HTMLDialogElement>(".bulk-add-dialog")?.close();
   shoppingEditId = null;
   shoppingEditDraft = null;
   travelEditId = null;
@@ -125,15 +126,17 @@ function reportStorageError(error: unknown): void {
   void render();
 }
 
-async function mutate(action: () => Promise<void>): Promise<void> {
+async function mutate(action: () => Promise<void>): Promise<boolean> {
   const pending = mutationQueue.then(action);
   mutationQueue = pending.catch(() => undefined);
   try {
     await pending;
     storageError = null;
     void syncEngine.requestSync().catch(reportStorageError);
+    return true;
   } catch (error) {
     reportStorageError(error);
+    return false;
   }
 }
 
@@ -247,11 +250,65 @@ function renderNav(): HTMLElement {
   return nav;
 }
 
-async function addShopping(text: string): Promise<void> {
+async function addShoppingItems(texts: string[]): Promise<void> {
   const items = await getShoppingItems();
   const positions = activeShopping(items).map((item) => item.position);
   const position = positions.length === 0 ? 0 : Math.max(...positions) + 1;
-  await commitLocalChanges("shopping_item", [makeShoppingItem(text, position)]);
+  const now = new Date().toISOString();
+  await commitLocalChanges("shopping_item", texts.map((text, index) => makeShoppingItem(text, position + index, now)));
+}
+
+function openBulkShoppingDialog(): void {
+  const dialog = element("dialog", "bulk-add-dialog");
+  dialog.setAttribute("aria-labelledby", "bulk-add-title");
+  const form = element("form", "bulk-add-form");
+  const title = element("h3", "", "Dodaj više stavki");
+  title.id = "bulk-add-title";
+  const label = element("label", "", "Jedna stavka po retku");
+  const textarea = element("textarea", "bulk-add-textarea");
+  textarea.rows = 7;
+  textarea.placeholder = "Mlijeko\nKeksi\nMaslac";
+  label.append(textarea);
+  const error = element("p", "bulk-add-error");
+  error.setAttribute("role", "alert");
+  error.hidden = true;
+  const actions = element("div", "bulk-add-actions");
+  const cancel = button("bulk-add-cancel", "Odustani");
+  cancel.addEventListener("click", () => dialog.close());
+  const submit = button("bulk-add-submit", "Dodaj stavke");
+  submit.type = "submit";
+  actions.append(cancel, submit);
+  form.append(title, label, error, actions);
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const lines = textarea.value.split(/\r\n?|\n/);
+    const texts = lines.map((line) => line.trim()).filter(Boolean);
+    const longLine = lines.findIndex((line) => line.trim().length > 240);
+    if (longLine !== -1) {
+      error.textContent = `Redak ${longLine + 1} ima više od 240 znakova.`;
+    } else if (texts.length === 0) {
+      error.textContent = "Unesite barem jednu stavku.";
+    } else {
+      error.hidden = true;
+      submit.disabled = true;
+      const saved = await mutate(() => addShoppingItems(texts));
+      if (saved) {
+        dialog.close();
+        return;
+      }
+      error.textContent = storageError ?? "Spremanje nije uspjelo. Pokušajte ponovno.";
+      submit.disabled = false;
+    }
+    error.hidden = false;
+  });
+  dialog.addEventListener("close", () => {
+    dialog.remove();
+    if (route === "shopping") requestAnimationFrame(() => document.querySelector<HTMLElement>(".bulk-add-trigger")?.focus());
+  });
+  dialog.append(form);
+  document.body.append(dialog);
+  dialog.showModal();
+  textarea.focus();
 }
 
 async function updateShopping(id: string, update: (item: ShoppingItem) => ShoppingItem): Promise<void> {
@@ -451,7 +508,12 @@ function renderShopping(items: ShoppingItem[]): HTMLElement {
 
   const paper = element("section", "paper");
   const paperTitle = element("div", "paper-heading");
-  paperTitle.append(element("h2", "", "Za kupiti"), renderSyncIndicator());
+  const titleActions = element("div", "paper-title-actions");
+  const bulkAdd = button("bulk-add-trigger", "+");
+  bulkAdd.setAttribute("aria-label", "Dodaj više stavki");
+  bulkAdd.addEventListener("click", openBulkShoppingDialog);
+  titleActions.append(element("h2", "", "Za kupiti"), bulkAdd);
+  paperTitle.append(titleActions, renderSyncIndicator());
   const addRow = element("div", "shopping-add-row");
   addRow.setAttribute("aria-label", "Dodaj na popis");
   const addCircle = element("span", "add-circle");
@@ -472,7 +534,7 @@ function renderShopping(items: ShoppingItem[]): HTMLElement {
     shoppingAddDraft = "";
     input.value = "";
     focusShoppingAddInput = true;
-    void mutate(() => addShopping(text));
+    void mutate(() => addShoppingItems([text]));
   });
   addRow.append(addCircle, input);
 
@@ -828,6 +890,7 @@ async function render(): Promise<void> {
     focusShoppingAddInput || (route === "shopping" && document.activeElement?.matches(".add-input"));
   try {
     if (syncStatus.phase === "unpaired") {
+      closeTransientUi();
       app.replaceChildren(renderUnpaired());
       return;
     }
